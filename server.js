@@ -239,12 +239,18 @@ function findSimilarArticles(article, allArticles, limit = 5) {
 
 // ============== API ROUTES ==============
 app.get('/api/articles', (req, res) => {
-  const { search, category, address, executor, dateFrom, dateTo, status, page = 1, limit = 20 } = req.query;
+  const { search, category, address, executor, dateFrom, dateTo, status, page = 1, limit = 20, ids } = req.query;
   
   const filters = { category, address, executor, dateFrom, dateTo, status };
   Object.keys(filters).forEach(k => !filters[k] && delete filters[k]);
+
+  let source = data.articles;
+  if (ids) {
+    const idsSet = new Set(ids.split(',').map(id => id.trim()).filter(Boolean));
+    source = source.filter(a => idsSet.has(a.id));
+  }
   
-  const filtered = intelligentSearch(data.articles, search, filters);
+  const filtered = intelligentSearch(source, search, filters);
   
   const start = (page - 1) * limit;
   const paginated = filtered.slice(start, start + parseInt(limit));
@@ -1036,6 +1042,43 @@ function getHTML() {
     
     .quick-tag:hover { border-color: var(--accent); color: var(--accent); }
     .quick-tag.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+    /* Favorites */
+    .favorites-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+    .favorites-btn .badge {
+      background: var(--warning);
+      color: #0a0a0f;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .favorites-btn.active {
+      border-color: var(--warning);
+      background: var(--warning);
+      color: #0a0a0f;
+    }
+    .favorites-btn.active .badge { background: #0a0a0f; color: var(--warning); }
+
+    .favorites-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .favorite-item {
+      padding: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s;
+      font-size: 13px;
+    }
+    .favorite-item:hover { border-color: var(--accent); background: var(--bg-hover); }
+    .favorite-item-title { display: block; font-weight: 600; margin-bottom: 4px; }
+    .favorite-item-number { color: var(--text-dim); font-size: 12px; }
+    .favorites-empty { font-size: 13px; color: var(--text-dim); }
   </style>
 </head>
 <body>
@@ -1093,9 +1136,12 @@ function getHTML() {
               <button class="btn btn-secondary btn-sm" onclick="clearFilters()">Сбросить</button>
             </div>
           </div>
-        </div>
+      </div>
         
         <div class="header-actions">
+          <button class="btn btn-secondary favorites-btn" id="favoritesButton" onclick="toggleFavoritesView()" title="Открыть избранное">
+            ⭐ Избранное <span class="badge" id="favoritesBadge">0</span>
+          </button>
           <button class="btn btn-secondary btn-icon" onclick="exportData()" title="Экспорт">📤</button>
           <label class="btn btn-secondary btn-icon" title="Импорт">
             📥
@@ -1130,6 +1176,15 @@ function getHTML() {
               <div class="stat-label">Избранное</div>
             </div>
           </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="sidebar-title" style="display:flex;align-items:center;gap:8px;">
+            <span>Избранное</span>
+            <span class="badge" id="favoritesSidebarBadge">0</span>
+          </div>
+          <div class="favorites-list" id="favoritesList"></div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:10px;width:100%;" onclick="showFavorites()">Открыть раздел</button>
         </div>
         
         <div class="sidebar-section">
@@ -1265,6 +1320,7 @@ function getHTML() {
     let currentSearch = '';
     let currentArticleId = null;
     let favorites = JSON.parse(localStorage.getItem('gis_favorites') || '[]');
+    let favoritesOnly = false;
     let filtersVisible = false;
 
     const QUICK_TAGS = ['Уборка', 'Счетчик', 'Отопление', 'Вандализм', 'Лифт', 'Крыша', 'Освещение'];
@@ -1274,6 +1330,9 @@ function getHTML() {
       loadCategories();
       loadStats();
       renderQuickTags();
+      renderFavoritesList();
+      updateFavoritesBadge();
+      updateContentTitle();
       
       const searchInput = document.getElementById('searchInput');
       searchInput.addEventListener('input', debounce(handleSearch, 300));
@@ -1289,6 +1348,7 @@ function getHTML() {
     function handleSearch(e) {
       currentSearch = e.target.value;
       currentPage = 1;
+      favoritesOnly = false;
       loadArticles();
       if (currentSearch.length >= 2) loadSuggestions();
     }
@@ -1347,16 +1407,26 @@ function getHTML() {
 
     async function loadArticles() {
       const filters = getFilters();
+
+      // Если включён режим избранного, но список пуст — показываем пустое состояние
+      if (favoritesOnly && favorites.length === 0) {
+        renderArticles({ articles: [], total: 0, totalPages: 1, page: 1 });
+        document.getElementById('resultsCount').textContent = 'В избранном пока нет карточек';
+        updateContentTitle();
+        return;
+      }
+
       const params = new URLSearchParams({
         page: currentPage,
-        limit: 20,
+        limit: favoritesOnly ? Math.max(50, favorites.length || 1) : 20,
         ...(currentSearch && { search: currentSearch }),
         ...(currentCategory && { category: currentCategory }),
         ...(filters.address && { address: filters.address }),
         ...(filters.executor && { executor: filters.executor }),
         ...(filters.dateFrom && { dateFrom: filters.dateFrom }),
         ...(filters.dateTo && { dateTo: filters.dateTo }),
-        ...(filters.status && { status: filters.status })
+        ...(filters.status && { status: filters.status }),
+        ...(favoritesOnly && favorites.length ? { ids: favorites.join(',') } : {})
       });
       
       const res = await fetch('/api/articles?' + params);
@@ -1366,7 +1436,8 @@ function getHTML() {
       renderArticles(data);
       renderPagination(data);
       
-      document.getElementById('resultsCount').textContent = \`Найдено: \${data.total}\`;
+      document.getElementById('resultsCount').textContent = favoritesOnly ? \`Избранных: \${data.total}\` : \`Найдено: \${data.total}\`;
+      updateContentTitle();
     }
 
     async function loadCategories() {
@@ -1405,10 +1476,16 @@ function getHTML() {
       ).join('');
     }
 
+    function updateContentTitle() {
+      const title = favoritesOnly ? 'Избранное' : (currentCategory || 'Все обращения');
+      document.getElementById('contentTitle').textContent = title;
+    }
+
     function quickSearch(tag) {
       document.getElementById('searchInput').value = tag;
       currentSearch = tag;
       currentPage = 1;
+      favoritesOnly = false;
       loadArticles();
     }
 
@@ -1419,8 +1496,8 @@ function getHTML() {
         container.innerHTML = \`
           <div class="empty-state">
             <div class="empty-icon">🔍</div>
-            <p>Ничего не найдено</p>
-            <p style="font-size:13px;margin-top:8px;">Попробуйте изменить запрос или фильтры</p>
+            <p>\${favoritesOnly ? 'В избранном пока пусто' : 'Ничего не найдено'}</p>
+            <p style="font-size:13px;margin-top:8px;">\${favoritesOnly ? 'Добавьте карточки через кнопку ⭐ в карточке или откройте все обращения' : 'Попробуйте изменить запрос или фильтры'}</p>
           </div>
         \`;
         return;
@@ -1453,7 +1530,11 @@ function getHTML() {
       const total = categories.reduce((s, c) => s + c.count, 0);
       
       list.innerHTML = \`
-        <li class="category-item \${!currentCategory ? 'active' : ''}" onclick="filterByCategory('')">
+        <li class="category-item \${favoritesOnly ? 'active' : ''}" onclick="showFavorites()">
+          <span>⭐ Избранное</span>
+          <span class="category-count">\${favorites.length}</span>
+        </li>
+        <li class="category-item \${!currentCategory && !favoritesOnly ? 'active' : ''}" onclick="filterByCategory('')">
           <span>Все обращения</span>
           <span class="category-count">\${total}</span>
         </li>
@@ -1464,6 +1545,53 @@ function getHTML() {
           </li>
         \`).join('')}
       \`;
+    }
+
+    async function renderFavoritesList() {
+      const container = document.getElementById('favoritesList');
+      if (!container) return;
+      
+      if (!favorites.length) {
+        container.innerHTML = '<div class="favorites-empty">Добавьте карточку в избранное через ⭐</div>';
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({
+          ids: favorites.join(','),
+          limit: Math.max(50, favorites.length),
+          page: 1
+        });
+        const res = await fetch('/api/articles?' + params);
+        const data = await res.json();
+        if (!data.articles?.length) {
+          container.innerHTML = '<div class="favorites-empty">Избранные карточки не найдены</div>';
+          return;
+        }
+        const order = new Map(favorites.map((id, idx) => [id, idx]));
+        const items = data.articles
+          .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+          .slice(0, 8)
+          .map(a => \`
+          <div class="favorite-item" onclick="openViewModal('\${a.id}')">
+            <span class="favorite-item-title">\${escapeHtml(a.topic || 'Без темы')}</span>
+            <span class="favorite-item-number">\${escapeHtml(a.number || '')}</span>
+          </div>
+        \`).join('');
+        container.innerHTML = items;
+      } catch (e) {
+        console.error('Не удалось загрузить избранное', e);
+        container.innerHTML = '<div class="favorites-empty">Не удалось загрузить список</div>';
+      }
+    }
+
+    function updateFavoritesBadge() {
+      const badge = document.getElementById('favoritesBadge');
+      if (badge) badge.textContent = favorites.length;
+      const sidebarBadge = document.getElementById('favoritesSidebarBadge');
+      if (sidebarBadge) sidebarBadge.textContent = favorites.length;
+      const btn = document.getElementById('favoritesButton');
+      if (btn) btn.classList.toggle('active', favoritesOnly);
     }
 
     function renderPagination(data) {
@@ -1489,10 +1617,32 @@ function getHTML() {
 
     function filterByCategory(cat) {
       currentCategory = cat;
+      favoritesOnly = false;
       currentPage = 1;
-      document.getElementById('contentTitle').textContent = cat || 'Все обращения';
       loadArticles();
       renderCategories();
+    }
+
+    function toggleFavoritesView() {
+      favoritesOnly = !favoritesOnly;
+      currentCategory = '';
+      currentPage = 1;
+      updateFavoritesBadge();
+      updateContentTitle();
+      loadArticles();
+      renderCategories();
+      renderFavoritesList();
+    }
+
+    function showFavorites() {
+      favoritesOnly = true;
+      currentCategory = '';
+      currentPage = 1;
+      updateFavoritesBadge();
+      updateContentTitle();
+      loadArticles();
+      renderCategories();
+      renderFavoritesList();
     }
 
     function goToPage(page) {
@@ -1595,6 +1745,12 @@ function getHTML() {
         showToast('Удалено из избранного');
       }
       localStorage.setItem('gis_favorites', JSON.stringify(favorites));
+      updateFavoritesBadge();
+      renderFavoritesList();
+      if (favoritesOnly) {
+        loadArticles();
+        renderCategories();
+      }
       openViewModal(id);
       loadStats();
     }
