@@ -307,7 +307,7 @@ app.get('/api/categories', (req, res) => {
   res.json(data.categories);
 });
 
-app.get('/api/stats', (req, res) => {
+function buildStats() {
   const totalViews = data.articles.reduce((s, a) => s + (a.views || 0), 0);
   const topViewed = [...data.articles].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 5);
   const executors = [...new Set(data.articles.map(a => a.executor).filter(Boolean))];
@@ -315,15 +315,29 @@ app.get('/api/stats', (req, res) => {
     const m = a.address?.match(/д\.\s*\d+/);
     return m ? m[0] : null;
   }).filter(Boolean))];
-  
-  res.json({
+
+  return {
     totalArticles: data.articles.length,
     totalCategories: data.categories.length,
     totalViews,
     topViewed,
     executors,
     addresses
-  });
+  };
+}
+
+function buildStatsSummary() {
+  const { totalArticles, totalCategories, totalViews } = buildStats();
+  return { totalArticles, totalCategories, totalViews };
+}
+
+app.get('/api/stats', (req, res) => {
+  try {
+    res.json(buildStats());
+  } catch (e) {
+    console.error('Failed to build stats', e);
+    res.status(500).json({ error: 'Failed to build stats' });
+  }
 });
 
 app.get('/api/suggestions', (req, res) => {
@@ -382,6 +396,7 @@ app.get('/', (req, res) => res.send(getHTML()));
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 function getHTML() {
+  const initialStats = buildStatsSummary();
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -1242,6 +1257,7 @@ function getHTML() {
   <div class="toast" id="toast"></div>
 
   <script>
+    const INITIAL_STATS = ${JSON.stringify(initialStats)};
     let articles = [];
     let categories = [];
     let currentPage = 1;
@@ -1359,14 +1375,27 @@ function getHTML() {
       renderCategories();
     }
 
+    const statsSnapshot = INITIAL_STATS || { totalArticles: 0, totalCategories: 0, totalViews: 0 };
+
+    function renderStats(stats = {}) {
+      document.getElementById('totalArticles').textContent = stats.totalArticles ?? 0;
+      document.getElementById('totalCategories').textContent = stats.totalCategories ?? 0;
+      document.getElementById('totalViews').textContent = stats.totalViews ?? 0;
+      document.getElementById('totalFavorites').textContent = stats.totalFavorites ?? favorites.length;
+    }
+
     async function loadStats() {
-      const res = await fetch('/api/stats');
-      const stats = await res.json();
-      
-      document.getElementById('totalArticles').textContent = stats.totalArticles;
-      document.getElementById('totalCategories').textContent = stats.totalCategories;
-      document.getElementById('totalViews').textContent = stats.totalViews;
-      document.getElementById('totalFavorites').textContent = favorites.length;
+      // Always show at least the snapshot + локальные избранные
+      renderStats({ ...statsSnapshot, totalFavorites: favorites.length });
+      try {
+        const res = await fetch('/api/stats');
+        if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
+        const stats = await res.json();
+        renderStats({ ...stats, totalFavorites: favorites.length });
+      } catch (err) {
+        console.error('Не удалось загрузить статистику', err);
+        showToast('Статистика временно недоступна, показаны сохранённые данные');
+      }
     }
 
     function renderQuickTags() {
