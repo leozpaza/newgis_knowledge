@@ -1048,6 +1048,20 @@ function getHTML() {
     /* Quick Tags */
     .quick-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
     
+    .quick-tags-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .clear-tags-btn {
+      padding: 6px 10px;
+      border-radius: 14px;
+      font-size: 11px;
+      line-height: 1;
+    }
+
     .quick-tag {
       padding: 6px 12px;
       background: var(--bg-hover);
@@ -1062,6 +1076,15 @@ function getHTML() {
     
     .quick-tag:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 8px 18px rgba(166, 15, 46, 0.12); }
     .quick-tag.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+    .quick-tag-label { pointer-events: none; }
+    .quick-tag-remove {
+      margin-left: 8px;
+      font-weight: 700;
+      color: var(--accent);
+      opacity: 0.8;
+      cursor: pointer;
+    }
+    .quick-tag-remove:hover { opacity: 1; }
 
     /* Favorites */
     .favorites-btn {
@@ -1116,7 +1139,7 @@ function getHTML() {
             <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
             </svg>
-            <input type="text" class="search-input" id="searchInput" placeholder="Интеллектуальный поиск: счётчик, ИПУ, уборка...">
+            <input type="text" class="search-input" id="searchInput" placeholder="Счётчик, ИПУ, уборка...">
             <div class="search-suggestions" id="suggestions"></div>
           </div>
           
@@ -1200,16 +1223,10 @@ function getHTML() {
         </div>
 
         <div class="sidebar-section">
-          <div class="sidebar-title" style="display:flex;align-items:center;gap:8px;">
-            <span>Избранное</span>
-            <span class="badge" id="favoritesSidebarBadge">0</span>
+          <div class="sidebar-title quick-tags-title">
+            <span>Быстрые теги</span>
+            <button class="btn btn-secondary btn-sm clear-tags-btn" onclick="clearTag()">Очистить теги</button>
           </div>
-          <div class="favorites-list" id="favoritesList"></div>
-          <button class="btn btn-secondary btn-sm" style="margin-top:10px;width:100%;" onclick="showFavorites()">Открыть раздел</button>
-        </div>
-        
-        <div class="sidebar-section">
-          <div class="sidebar-title">Быстрые теги</div>
           <div class="quick-tags" id="quickTags"></div>
         </div>
         
@@ -1343,6 +1360,7 @@ function getHTML() {
     let favorites = JSON.parse(localStorage.getItem('gis_favorites') || '[]');
     let favoritesOnly = false;
     let filtersVisible = false;
+    let activeTag = '';
 
     const QUICK_TAGS = ['Уборка', 'Счетчик', 'Отопление', 'Вандализм', 'Лифт', 'Крыша', 'Освещение'];
 
@@ -1368,6 +1386,10 @@ function getHTML() {
 
     function handleSearch(e) {
       currentSearch = e.target.value;
+      if (activeTag) {
+        activeTag = '';
+        renderQuickTags();
+      }
       currentPage = 1;
       favoritesOnly = false;
       loadArticles();
@@ -1492,9 +1514,15 @@ function getHTML() {
 
     function renderQuickTags() {
       const container = document.getElementById('quickTags');
-      container.innerHTML = QUICK_TAGS.map(tag => 
-        \`<span class="quick-tag" onclick="quickSearch('\${tag}')">\${tag}</span>\`
-      ).join('');
+      container.innerHTML = QUICK_TAGS.map(tag => {
+        const isActive = activeTag === tag;
+        return \`
+          <button class="quick-tag \${isActive ? 'active' : ''}" onclick="toggleTag('\${tag}')">
+            <span class="quick-tag-label">\${tag}</span>
+            \${isActive ? '<span class="quick-tag-remove" onclick="clearTag(event)">×</span>' : ''}
+          </button>
+        \`;
+      }).join('');
     }
 
     function updateContentTitle() {
@@ -1502,11 +1530,29 @@ function getHTML() {
       document.getElementById('contentTitle').textContent = title;
     }
 
-    function quickSearch(tag) {
+    function toggleTag(tag) {
+      if (activeTag === tag) {
+        clearTag();
+        return;
+      }
+      activeTag = tag;
       document.getElementById('searchInput').value = tag;
       currentSearch = tag;
       currentPage = 1;
       favoritesOnly = false;
+      renderQuickTags();
+      loadArticles();
+    }
+
+    function clearTag(event) {
+      if (event) event.stopPropagation();
+      if (!activeTag) return;
+      activeTag = '';
+      document.getElementById('searchInput').value = '';
+      currentSearch = '';
+      currentPage = 1;
+      favoritesOnly = false;
+      renderQuickTags();
       loadArticles();
     }
 
@@ -1640,6 +1686,11 @@ function getHTML() {
       currentCategory = cat;
       favoritesOnly = false;
       currentPage = 1;
+      if (activeTag) {
+        clearTag();
+        renderCategories();
+        return;
+      }
       loadArticles();
       renderCategories();
     }
