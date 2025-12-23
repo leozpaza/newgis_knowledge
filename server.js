@@ -1086,6 +1086,63 @@ function getHTML() {
     }
     .quick-tag-remove:hover { opacity: 1; }
 
+    .quick-tags-expand {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .btn-link {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 13px;
+      padding: 8px 0;
+      width: 100%;
+      text-align: center;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn-link:hover {
+      text-decoration: underline;
+    }
+
+    #expandCount {
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    .filters-badge {
+      background: var(--danger);
+      color: white;
+      border-radius: 10px;
+      padding: 2px 6px;
+      font-size: 11px;
+      margin-left: 4px;
+      font-weight: 600;
+    }
+
+    .executor-link {
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+
+    .executor-link:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    mark {
+      background: #fff3cd;
+      padding: 2px 4px;
+      border-radius: 2px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
     /* Favorites */
     .favorites-btn {
       display: inline-flex;
@@ -1148,6 +1205,7 @@ function getHTML() {
               <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
             </svg>
             Расширенные фильтры
+            <span class="filters-badge" id="filtersBadge" style="display:none;">0</span>
           </button>
           
           <div class="filters-panel" id="filtersPanel">
@@ -1186,6 +1244,7 @@ function getHTML() {
           <button class="btn btn-secondary favorites-btn" id="favoritesButton" onclick="toggleFavoritesView()" title="Открыть избранное">
             ⭐ Избранное <span class="badge" id="favoritesBadge">0</span>
           </button>
+          <button class="btn btn-secondary btn-sm" onclick="exportFavorites()" title="Экспорт избранного">📥 Экспорт ⭐</button>
           <button class="btn btn-secondary btn-icon" onclick="exportData()" title="Экспорт">📤</button>
           <label class="btn btn-secondary btn-icon" title="Импорт">
             📥
@@ -1228,6 +1287,10 @@ function getHTML() {
             <button class="btn btn-secondary btn-sm clear-tags-btn" onclick="clearTag()">Очистить теги</button>
           </div>
           <div class="quick-tags" id="quickTags"></div>
+          <div class="quick-tags-expand" id="quickTagsExpand" style="display:none;"></div>
+          <button class="btn-link" onclick="toggleExpandTags()" id="expandTagsBtn">
+            Показать ещё <span id="expandCount">(25)</span>
+          </button>
         </div>
         
         <div class="sidebar-section">
@@ -1361,8 +1424,53 @@ function getHTML() {
     let favoritesOnly = false;
     let filtersVisible = false;
     let activeTag = '';
+    let expandedTags = false;
 
-    const QUICK_TAGS = ['Уборка', 'Счетчик', 'Отопление', 'Вандализм', 'Лифт', 'Крыша', 'Освещение'];
+    const QUICK_TAGS = [
+      'Другое',
+      'Проблема с платежными документами',
+      'Проблемы с входной дверью',
+      'Проблемы с уборкой подъезда',
+      'Другая тема',
+      'Проблемы с начислениями в квитанциях',
+      'Проблемы с лифтом',
+      'Подключение к видеонаблюдению',
+      'Размещение информации об индивидуальном приборе учета',
+      'Вандализм',
+      'Отсутствие горячей воды',
+      'Розыск неучтенных направленных платежей',
+      'Подключение к домофону',
+      'Неисправный домофон или запирающие устройства',
+      'Даты приёма показаний неверны'
+    ];
+
+    const ALL_CATEGORIES_FOR_EXPAND = [
+      'Неисправное освещение',
+      'Ненадлежащее качество коммунальной услуги по отоплению (холодно/жарко в квартире)',
+      'Уход за газоном и зелеными насаждениями',
+      'Нужна справка или документ по всему дому',
+      'Ненадлежащее качество коммунальной услуги по горячему водоснабжению низкая/высокая температура горячей воды в квартире',
+      'Содержание детской/спортивной площадки',
+      'Повреждение стен и фасада',
+      'Уборка во дворе',
+      'Состояние дорог и тротуаров',
+      'Содержание контейнерной площадки, вывоз мусора',
+      'Намокание межквартирных перегородок',
+      'Низкое/высокое давление (напор) горячей воды',
+      'Проблемы с капремонтом',
+      'Ошибки в квитанциях',
+      'Отсутствует счетчик в мобильном приложении',
+      'Вызвать специалиста',
+      'Подключение к видеонаблюдению ГИС ЖКХ',
+      'Предоставление отчета',
+      'Неверно указан номер счетчика',
+      'Некорректные сведения, размещённые в системе поставщиками информации',
+      'Дублируются счетчики в мобильном приложении',
+      'Передача показаний ИПУ в виде фотофиксации для проверки',
+      'Проблемы при голосовании',
+      'Прикрепление лицевого счета',
+      'Неисправность прибора учёта на время замены'
+    ];
 
     document.addEventListener('DOMContentLoaded', () => {
       loadArticles();
@@ -1380,7 +1488,7 @@ function getHTML() {
       
       // Filter inputs
       ['filterAddress', 'filterExecutor', 'filterDateFrom', 'filterDateTo', 'filterStatus'].forEach(id => {
-        document.getElementById(id).addEventListener('change', () => { currentPage = 1; loadArticles(); });
+        document.getElementById(id).addEventListener('change', () => { currentPage = 1; updateFiltersCount(); loadArticles(); });
       });
     });
 
@@ -1423,6 +1531,23 @@ function getHTML() {
       document.getElementById('suggestions').classList.remove('show');
     }
 
+    function updateFiltersCount() {
+      let count = 0;
+      if (document.getElementById('filterAddress').value) count++;
+      if (document.getElementById('filterExecutor').value) count++;
+      if (document.getElementById('filterStatus').value !== '') count++;
+      if (document.getElementById('filterDateFrom').value) count++;
+      if (document.getElementById('filterDateTo').value) count++;
+
+      const badge = document.getElementById('filtersBadge');
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
     function toggleFilters() {
       filtersVisible = !filtersVisible;
       document.getElementById('filtersPanel').classList.toggle('show', filtersVisible);
@@ -1435,6 +1560,7 @@ function getHTML() {
       });
       document.getElementById('filterStatus').value = '';
       currentPage = 1;
+      updateFiltersCount();
       loadArticles();
     }
 
@@ -1556,6 +1682,29 @@ function getHTML() {
       loadArticles();
     }
 
+    function toggleExpandTags() {
+      expandedTags = !expandedTags;
+      const container = document.getElementById('quickTagsExpand');
+      const btn = document.getElementById('expandTagsBtn');
+
+      if (expandedTags) {
+        container.style.display = 'flex';
+        container.innerHTML = ALL_CATEGORIES_FOR_EXPAND.map(tag => {
+          const isActive = activeTag === tag;
+          return \`
+            <button class="quick-tag \${isActive ? 'active' : ''}" onclick="toggleTag('\${escapeHtml(tag)}')">
+              <span class="quick-tag-label">\${escapeHtml(tag)}</span>
+              \${isActive ? '<span class="quick-tag-remove" onclick="clearTag(event)">×</span>' : ''}
+            </button>
+          \`;
+        }).join('');
+        btn.innerHTML = 'Скрыть ↑';
+      } else {
+        container.style.display = 'none';
+        btn.innerHTML = \`Показать ещё <span id="expandCount">(\${ALL_CATEGORIES_FOR_EXPAND.length})</span>\`;
+      }
+    }
+
     function renderArticles(data) {
       const container = document.getElementById('articlesContainer');
       
@@ -1582,10 +1731,10 @@ function getHTML() {
               <span class="article-number">\${escapeHtml(a.number || '-')}</span>
             </div>
           </div>
-          <div class="article-text">\${escapeHtml(a.response_text || a.appeal_text || '')}</div>
+          <div class="article-text">\${highlightText(a.response_text || a.appeal_text || '', currentSearch)}</div>
           <div class="article-meta">
             \${(a.tags || []).slice(0, 3).map(t => \`<span class="article-tag">\${escapeHtml(t)}</span>\`).join('')}
-            \${a.executor ? \`<span>👤 \${escapeHtml(a.executor.split(' ').slice(0, 2).join(' '))}</span>\` : ''}
+            \${a.executor ? \`<span class="executor-link" onclick="filterByExecutor(event, '\${escapeHtml(a.executor)}')">👤 \${escapeHtml(a.executor.split(' ').slice(0, 2).join(' '))}</span>\` : ''}
           </div>
         </div>
       \`}).join('')}</div>\`;
@@ -1693,6 +1842,16 @@ function getHTML() {
       }
       loadArticles();
       renderCategories();
+    }
+
+    function filterByExecutor(event, executor) {
+      event.stopPropagation();
+      document.getElementById('filterExecutor').value = executor;
+      currentPage = 1;
+      updateFiltersCount();
+      if (!filtersVisible) toggleFilters();
+      loadArticles();
+      showToast(\`Фильтр: \${executor}\`);
     }
 
     function toggleFavoritesView() {
@@ -1916,6 +2075,35 @@ function getHTML() {
       showToast('Экспортировано');
     }
 
+    async function exportFavorites() {
+      if (!favorites.length) {
+        showToast('Нет избранных статей');
+        return;
+      }
+
+      const params = new URLSearchParams({ ids: favorites.join(','), limit: 1000 });
+      const res = await fetch('/api/articles?' + params);
+      const data = await res.json();
+
+      const exportData = {
+        articles: data.articles,
+        categories: categories.filter(c =>
+          data.articles.some(a => a.tags.includes(c.name))
+        ),
+        exportedAt: new Date().toISOString(),
+        type: 'favorites'
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = \`gis-kb-favorites-\${new Date().toISOString().split('T')[0]}.json\`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('✅ Избранное экспортировано');
+    }
+
     async function importData(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -1950,6 +2138,20 @@ function getHTML() {
       return div.innerHTML;
     }
 
+    function highlightText(text, query) {
+      if (!query || query.length < 2) return escapeHtml(text);
+
+      const words = query.toLowerCase().split(' ').filter(w => w.length > 2);
+      let highlighted = escapeHtml(text);
+
+      words.forEach(word => {
+        const regex = new RegExp(\`(\${word})\`, 'gi');
+        highlighted = highlighted.replace(regex, '<mark>$1</mark>');
+      });
+
+      return highlighted;
+    }
+
     function debounce(fn, ms) {
       let timeout;
       return (...args) => {
@@ -1959,12 +2161,30 @@ function getHTML() {
     }
     
     document.addEventListener('keydown', (e) => {
+      // Escape - закрыть модальные окна и фильтры
       if (e.key === 'Escape') {
         document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+        if (filtersVisible) toggleFilters();
       }
+
+      // / - фокус на поиск
       if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
         e.preventDefault();
         document.getElementById('searchInput').focus();
+      }
+
+      // Ctrl+K или Cmd+K - фокус и выделение поиска
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const searchInput = document.getElementById('searchInput');
+        searchInput.focus();
+        searchInput.select();
+      }
+
+      // Ctrl+F или Cmd+F - переключить фильтры
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        if (!filtersVisible) toggleFilters();
       }
     });
   </script>
